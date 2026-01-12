@@ -106,9 +106,8 @@ def chat():
         
         return jsonify({"reply": reply})
 
-    except Exception as e:
-        print(f"Gemini Error: {e}")
-        return jsonify({"reply": get_fallback_reply(user_message)})
+    # ADD THIS LINE INSTEAD:
+        return jsonify({"reply": f"⚠️ DEBUG ERROR: {str(e)}"})
 
 if __name__ == '__main__':
     app.run(port=9292)
