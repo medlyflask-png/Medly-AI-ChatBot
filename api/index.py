@@ -15,7 +15,7 @@ CORS(app)
 
 # --- CONFIGURATION ---
 HF_TOKEN = os.environ.get("HF_TOKEN")
-API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3"
+API_URL = "https://api-inference.huggingface.co/models/HuggingFaceH4/zephyr-7b-beta"
 
 SYSTEM_CONTEXT = """
 You are the AI Assistant for Medly (Tagline: Build It).
