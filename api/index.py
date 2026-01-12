@@ -73,7 +73,7 @@ def chat():
         }
 
         # 4 Second Timeout for Speed
-        response = requests.post(API_URL, headers=headers, json=payload, timeout=4)
+        response = requests.post(API_URL, headers=headers, json=payload, timeout=20)
 
         if response.status_code == 200:
             result = response.json()
