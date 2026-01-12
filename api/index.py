@@ -1,9 +1,16 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
-from google import genai
+import warnings
 
-# --- SAFE IMPORT FOR LOCAL TESTING ---
+# --- 1. SILENCE THE WARNINGS ---
+# This hides the "FutureWarning" so your logs stay clean
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
+
+# --- 2. OLD RELIABLE IMPORT ---
+import google.generativeai as genai
+
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -16,8 +23,7 @@ CORS(app)
 # --- CONFIGURATION ---
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 
-# --- THE BRAIN (System Instructions) ---
-# This is where we "Train" the AI with your Brand Rules
+# --- SYSTEM INSTRUCTION (Context) ---
 SYSTEM_INSTRUCTION = """
 ROLE: You are the dedicated AI Customer Support Agent for "Medly".
 BRAND TAGLINE: "Build It"
@@ -52,33 +58,25 @@ BRAND VIBE: Professional, Helpful, Premium, and Trustworthy.
    - Website: mymedly.in
 
 ### RULES FOR ANSWERING:
-1. LENGTH: Keep answers SHORT (Max 2-3 sentences). This is a chat widget, not an email.
-2. FORMATTING: Use **bold** for key details (like **Lifetime Warranty** or **Free Shipping**).
-3. PRICE: Never invent a price. Say: "Please check the latest price on our product page."
-4. TONE: Be polite but efficient. Do not be overly flowery.
-5. UNKNOWN: If you don't know the answer, say: "I am not sure about that. Please email our team at support@mymedly.in."
+1. LENGTH: Keep answers SHORT (Max 2-3 sentences).
+2. FORMATTING: Use **bold** for key details.
+3. PRICE: "Please check the latest price on our product page."
+4. TONE: Be polite but efficient.
 """
 
-# --- BACKUP LOGIC (Safety Net) ---
-# Runs if the AI fails or is missing the key
+# --- BACKUP LOGIC ---
 def get_fallback_reply(user_message):
     msg = user_message.lower()
     if "warranty" in msg:
         return "Medly offers a **Lifetime Warranty** on heat retention, backed by our 'Build It' promise."
     elif "shipping" in msg or "delivery" in msg:
         return "We offer **Free Shipping** across India! Deliveries typically take 2-4 business days."
-    elif "return" in msg or "refund" in msg:
-        return "We have a 7-day easy return policy for any manufacturing defects."
-    elif "hello" in msg or "hi" in msg:
-        return "Hello! Welcome to Medly. Ask me about our Lifetime Warranty!"
-    else:
-        return "Please email support@mymedly.in for immediate help."
+    return "Please email support@mymedly.in for immediate help."
 
 # --- ROUTES ---
-
 @app.route('/', methods=['GET'])
 def home():
-    return "Medly Gemini Chatbot is ALIVE and Ready!"
+    return "Medly Gemini Chatbot is ALIVE!"
 
 @app.route('/chat', methods=['POST'])
 def chat():
@@ -88,31 +86,29 @@ def chat():
     if not user_message:
         return jsonify({"error": "Empty message"}), 400
 
-    # Safety Check: Is the key missing?
     if not GEMINI_KEY:
-        print("ERROR: GEMINI_API_KEY is missing in Vercel!")
+        print("ERROR: GEMINI_API_KEY is missing!")
         return jsonify({"reply": get_fallback_reply(user_message)})
 
     try:
-        # Initialize Gemini Client (New Library)
-        client = genai.Client(api_key=GEMINI_KEY)
+        # Configure Old Library
+        genai.configure(api_key=GEMINI_KEY)
         
-        # Ask the AI
-        response = client.models.generate_content(
-            model="gemini-1.5-flash",
-            contents=user_message,
-            config={"system_instruction": SYSTEM_INSTRUCTION}
+        # Create Model
+        model = genai.GenerativeModel(
+            model_name="gemini-1.5-flash",
+            system_instruction=SYSTEM_INSTRUCTION
         )
-        
-        # Extract and Clean the Reply
+
+        # Generate Response
+        response = model.generate_content(user_message)
         reply = response.text.strip()
+        
         return jsonify({"reply": reply})
 
     except Exception as e:
         print(f"Gemini Error: {e}")
-        # If the AI crashes, use the Backup Logic so the user gets an answer
         return jsonify({"reply": get_fallback_reply(user_message)})
 
-# Vercel Entry Point
 if __name__ == '__main__':
     app.run(port=9292)
