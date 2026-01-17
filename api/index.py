@@ -1,91 +1,85 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import os
-import warnings
-import google.generativeai as genai
-
-# --- 1. SILENCE WARNINGS ---
-warnings.filterwarnings("ignore", category=FutureWarning)
-warnings.filterwarnings("ignore", category=UserWarning)
 
 app = Flask(__name__)
 
-# --- 2. CRITICAL: CORS FIX ---
-# This specific configuration is required to stop the "Blocked by CORS" error on Shopify.
+# --- 1. CORS CONFIGURATION ---
+# Allows your Shopify store to talk to this backend
 CORS(app, resources={
     r"/*": {
         "origins": ["https://mymedly.in", "http://localhost:3000"],
         "methods": ["GET", "POST", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"]
+        "allow_headers": ["Content-Type"]
     }
 })
 
-# --- 3. CONFIGURATION ---
-GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
-
-# --- 4. SYSTEM INSTRUCTION (Updated with Scraped Data) ---
-SYSTEM_INSTRUCTION = """
-ROLE: You are the dedicated AI Customer Support Agent for "Medly".
-BRAND TAGLINE: "Build It" (Also: "One Flask. Endless Moments.")
-BRAND VIBE: Professional, Helpful, Premium, and Trustworthy.
-
-### YOUR KNOWLEDGE BASE (REAL DATA):
-
-1. PRODUCT INFO:
-   - Tech: ZeroAir™ Steel Bottles (Vacuum Insulated).
-   - Models: 
-     * Classic (₹799 - ₹999)
-     * Prime (₹1,300)
-     * Tumbler (₹1,399)
-     * Sports (₹1,500 - ₹2,000)
-   - Performance: Keeps water Hot for 20 Hours and Cold for 24 Hours.
-   - Warranty: LIFETIME WARRANTY on heat retention.
-
-2. PAYMENT & SHIPPING:
-   - Payment: Cash on Delivery (COD) is Available.
-   - Shipping: Calculated at checkout. Typically 2-4 days for metros.
-
-3. CONTACT & SUPPORT:
-   - Email: support@mymedly.in
-   - Phone: 8744048726 (Available 24/7)
-   - Address: A-13, Graphix Tower-2, Sector-62, Noida, Uttar Pradesh.
-
-4. RETURNS:
-   - Policy: 7-Day Easy Return (only for manufacturing defects or wrong product).
-
-### RULES FOR ANSWERING:
-1. LENGTH: Keep answers SHORT (Max 2-3 sentences).
-2. FORMATTING: Use **bold** for key details like prices or warranty.
-3. TONE: Be polite but efficient.
-"""
-
-# --- 5. ROBUST FALLBACK LOGIC (If Gemini Fails) ---
-def get_fallback_reply(user_message):
+# --- 2. THE LOGIC (The Brain) ---
+def get_rule_based_reply(user_message):
+    # Convert message to lowercase to make matching easier
     msg = user_message.lower()
-    
-    # Warranty Logic
-    if "warranty" in msg or "guarantee" in msg:
-        return "Medly offers a **Lifetime Warranty** on heat/cold retention. If your bottle stops working, we replace it. (Physical damage not covered)."
-    
-    # Shipping & Payment Logic
-    elif "shipping" in msg or "delivery" in msg or "time" in msg:
-        return "We deliver in **2-4 business days** to metro cities. **Cash on Delivery (COD)** is available!"
-    
-    # Price/Product Logic
-    elif "price" in msg or "cost" in msg or "how much" in msg:
-        return "Our bottles start from **₹799** (Classic) up to **₹2,000** (Sports). Check the 'Shop' page for today's deals."
-        
-    # Contact Logic
-    elif "contact" in msg or "support" in msg or "phone" in msg or "email" in msg:
-        return "You can reach us 24/7 at **8744048726** or email **support@mymedly.in**."
-    
-    # Default
-    return "I am here to help! Please email support@mymedly.in for immediate assistance."
+
+    # --- GREETINGS ---
+    if any(word in msg for word in ["hi", "hello", "hey", "start", "good morning", "good evening"]):
+        return "Hello! Welcome to Medly. I can help you with Warranty, Shipping, Prices, or Product details. What would you like to know?"
+
+    # --- WARRANTY (The "Build It" Promise) ---
+    if any(word in msg for word in ["warranty", "guarantee", "lifetime", "claim", "replacement"]):
+        return ("Medly offers a **Lifetime Warranty** on heat/cold retention! "
+                "If your bottle stops working, we replace it. "
+                "(Note: Physical damage/dents are not covered).")
+
+    # --- SHIPPING & DELIVERY ---
+    if any(word in msg for word in ["shipping", "ship", "delivery", "deliver", "arrive", "reach", "track", "time"]):
+        return ("We offer **Free Shipping** across India! "
+                "Deliveries typically take **2-4 business days** for metro cities. "
+                "You will receive a tracking link via SMS/Email once dispatched.")
+
+    # --- PAYMENT & COD ---
+    if any(word in msg for word in ["cod", "cash", "pay", "payment", "card", "upi"]):
+        return ("Yes! **Cash on Delivery (COD)** is available. "
+                "You can order today and pay when the bottle arrives at your doorstep.")
+
+    # --- PRICE & COST ---
+    if any(word in msg for word in ["price", "cost", "how much", "rate", "rupees", "rs"]):
+        return ("Our prices range from **₹799** (Classic) to **₹2,000** (Sports). "
+                "Please check the 'Shop' page for the latest discounts and deals!")
+
+    # --- PRODUCT FEATURES (Hot/Cold) ---
+    if any(word in msg for word in ["hot", "cold", "hour", "temperature", "warm", "cool"]):
+        return ("Our ZeroAir™ vacuum technology keeps drinks **Hot for 20 Hours** and **Cold for 24 Hours**. "
+                "Perfect for any weather!")
+
+    # --- SPECIFIC MODELS ---
+    if "classic" in msg:
+        return "The **Classic** is our everyday favorite. Compact, stylish, and starts at ₹799."
+    if "prime" in msg:
+        return "The **Prime** is our premium model with a sleek finish, priced around ₹1,300."
+    if "sports" in msg or "gym" in msg:
+        return "The **Sports** bottle is built for endurance. Rugged, larger capacity, and ready for action."
+    if "tumbler" in msg:
+        return "The **Tumbler** is perfect for coffee or tea on the go."
+
+    # --- RETURNS & REFUNDS ---
+    if any(word in msg for word in ["return", "refund", "exchange", "broken", "damage", "defect"]):
+        return ("We have a **7-Day Easy Return Policy** for manufacturing defects or wrong products. "
+                "Just email us a photo/video, and we'll arrange a free reverse pickup.")
+
+    # --- CONTACT SUPPORT ---
+    if any(word in msg for word in ["contact", "support", "email", "phone", "call", "number", "talk", "human"]):
+        return ("We are here 24/7! Call us at **8744048726** or email **support@mymedly.in**.")
+
+    # --- CLEANING & CARE ---
+    if any(word in msg for word in ["clean", "wash", "smell", "care", "soap"]):
+        return "Hand wash your Medly bottle with warm soapy water. Do not put it in the dishwasher or freezer to maintain the vacuum seal."
+
+    # --- DEFAULT (Unknown Query) ---
+    return ("I'm not sure about that, but I'd love to help! "
+            "Please ask about Warranty, Shipping, or Prices, or email support@mymedly.in.")
 
 # --- ROUTES ---
 @app.route('/', methods=['GET'])
 def home():
-    return "Medly Gemini Chatbot is ALIVE!"
+    return "Medly Rule-Based Chatbot is Running."
 
 @app.route('/chat', methods=['POST', 'OPTIONS'])
 def chat():
@@ -93,37 +87,21 @@ def chat():
     if request.method == 'OPTIONS':
         return jsonify({}), 200
 
-    data = request.json
-    user_message = data.get('message', '')
-
-    if not user_message:
-        return jsonify({"error": "Empty message"}), 400
-
-    # FALLBACK: If API Key is missing, use the If/Else Logic
-    if not GEMINI_KEY:
-        print("WARNING: GEMINI_API_KEY is missing. Using Fallback logic.")
-        return jsonify({"reply": get_fallback_reply(user_message)})
-
     try:
-        # Configure Gemini
-        genai.configure(api_key=GEMINI_KEY)
-        
-        # Create Model
-        model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
-            system_instruction=SYSTEM_INSTRUCTION
-        )
+        data = request.json
+        user_message = data.get('message', '')
 
-        # Generate Response
-        response = model.generate_content(user_message)
-        reply = response.text.strip()
-        
-        return jsonify({"reply": reply})
+        if not user_message:
+            return jsonify({"error": "Empty message"}), 400
+
+        # Get the strict rule-based reply
+        bot_reply = get_rule_based_reply(user_message)
+
+        return jsonify({"reply": bot_reply})
 
     except Exception as e:
-        print(f"Gemini Error: {e}")
-        # FALLBACK: If Gemini crashes, use the If/Else Logic
-        return jsonify({"reply": get_fallback_reply(user_message)})
+        print(f"Error: {e}")
+        return jsonify({"error": "Server Error"}), 500
 
 # Required for Vercel
 if __name__ == '__main__':
