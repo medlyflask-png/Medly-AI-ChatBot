@@ -1,10 +1,13 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+import difflib
+import re
+import random
 
 app = Flask(__name__)
 
 # --- 1. CORS CONFIGURATION ---
-# Allows your Shopify store to talk to this backend
+# Strictly allows only your store and local testing
 CORS(app, resources={
     r"/*": {
         "origins": ["https://mymedly.in", "http://localhost:3000"],
@@ -13,73 +16,270 @@ CORS(app, resources={
     }
 })
 
-# --- 2. THE LOGIC (The Brain) ---
-def get_rule_based_reply(user_message):
-    # Convert message to lowercase to make matching easier
-    msg = user_message.lower()
+# ==============================================================================
+# 2. THE KNOWLEDGE BASE (THE BRAIN)
+# ==============================================================================
+# This dictionary contains every possible topic, the keywords to trigger it
+# (including bad spellings), and the smart response.
+# ==============================================================================
 
-    # --- GREETINGS ---
-    if any(word in msg for word in ["hi", "hello", "hey", "start", "good morning", "good evening"]):
-        return "Hello! Welcome to Medly. I can help you with Warranty, Shipping, Prices, or Product details. What would you like to know?"
+KNOWLEDGE_BASE = [
+    # --- GREETINGS & BASICS ---
+    {
+        "intent": "greeting",
+        "keywords": [
+            "hi", "hello", "hey", "hie", "hy", "hiya", "good morning", "good evening", 
+            "good afternoon", "namaste", "start", "yo", "bot", "assistant", "chat"
+        ],
+        "response": [
+            "Hello! Welcome to Medly. I'm here to help you #BuildIt. Ask me about Warranty, Shipping, or our Products!",
+            "Hi there! I'm the Medly Assistant. How can I help you stay hydrated today?",
+            "Hey! Welcome to the world of Medly. Looking for a new bottle or need help with an order?"
+        ]
+    },
+    {
+        "intent": "gratitude",
+        "keywords": ["thank", "thanks", "thx", "thnks", "cool", "great", "awesome", "good job", "nice"],
+        "response": ["You're very welcome!", "Happy to help! Keep building.", "Glad I could assist!"]
+    },
+    {
+        "intent": "goodbye",
+        "keywords": ["bye", "goodbye", "cya", "see ya", "end", "stop", "exit", "quit"],
+        "response": ["Goodbye! Stay hydrated.", "See you soon! Don't forget to #BuildIt."]
+    },
+    
+    # --- BRAND IDENTITY ---
+    {
+        "intent": "brand_info",
+        "keywords": [
+            "who are you", "medly", "brand", "company", "owner", "located", "where", "location", 
+            "indian", "china", "manufacture", "origin", "about us"
+        ],
+        "response": [
+            "Medly Style Pvt. Ltd. is a proud Indian brand based in **Noida, Uttar Pradesh**. Our tagline is **'Build It'**.",
+            "We are Medly! We engineer premium vacuum-insulated bottles designed for endurance. We are headquartered in Noida, India."
+        ]
+    },
 
-    # --- WARRANTY (The "Build It" Promise) ---
-    if any(word in msg for word in ["warranty", "guarantee", "lifetime", "claim", "replacement"]):
-        return ("Medly offers a **Lifetime Warranty** on heat/cold retention! "
-                "If your bottle stops working, we replace it. "
-                "(Note: Physical damage/dents are not covered).")
+    # --- WARRANTY (CORE FEATURE) ---
+    {
+        "intent": "warranty_policy",
+        "keywords": [
+            "warranty", "waranty", "warrnty", "guarantee", "guaranty", "lifetime", "life time", 
+            "promise", "assurance", "insure", "insurance"
+        ],
+        "response": [
+            "🛡️ **Medly Lifetime Warranty**: We guarantee our flasks will keep your drinks Hot/Cold for life! If the vacuum insulation fails, we replace it for free.",
+            "We offer a **Lifetime Warranty** on heat retention! Note: This covers technical failures, not physical damage like dents or scratches."
+        ]
+    },
+    {
+        "intent": "warranty_claim",
+        "keywords": [
+            "claim", "not working", "fails", "failed", "cold", "hot", "issue", "problem", 
+            "defective", "stopped", "stop working", "heat loss"
+        ],
+        "response": [
+            "To claim your warranty, simply email a video of the issue to **support@mymedly.in**. Our team will approve the replacement within 24 hours!",
+            "Facing an issue? Don't worry. Email us at **support@mymedly.in** with your order details and a small video proof."
+        ]
+    },
+    {
+        "intent": "warranty_exclusions",
+        "keywords": [
+            "dent", "scratch", "paint", "broken", "fell", "drop", "dropped", "damage", "chip", "peel"
+        ],
+        "response": [
+            "⚠️ Please note: Our Lifetime Warranty covers **Vacuum Insulation** (temperature retention) only. Physical damage like **dents, paint scratches, or breakage** from dropping the bottle is not covered."
+        ]
+    },
 
     # --- SHIPPING & DELIVERY ---
-    if any(word in msg for word in ["shipping", "ship", "delivery", "deliver", "arrive", "reach", "track", "time"]):
-        return ("We offer **Free Shipping** across India! "
-                "Deliveries typically take **2-4 business days** for metro cities. "
-                "You will receive a tracking link via SMS/Email once dispatched.")
+    {
+        "intent": "shipping_time",
+        "keywords": [
+            "ship", "shipping", "deliver", "delivery", "arrive", "reach", "time", "days", "long", 
+            "when", "expected", "duration", "fast"
+        ],
+        "response": [
+            "🚚 **Free Shipping across India!** Orders typically reach Metro cities in **2-4 business days**. Remote areas may take up to 6 days.",
+            "We dispatch within 24 hours! You can expect your Medly bottle in **2-4 days**."
+        ]
+    },
+    {
+        "intent": "tracking",
+        "keywords": ["track", "tracking", "order status", "where is my order", "shipped yet", "awb", "courier"],
+        "response": [
+            "Once your order is dispatched, you will receive a **Tracking Link via SMS and Email**. You can use that to see exactly where your bottle is!",
+            "Check your email/SMS for the Bluedart/Delhivery tracking link. If you didn't get it, email support@mymedly.in."
+        ]
+    },
 
-    # --- PAYMENT & COD ---
-    if any(word in msg for word in ["cod", "cash", "pay", "payment", "card", "upi"]):
-        return ("Yes! **Cash on Delivery (COD)** is available. "
-                "You can order today and pay when the bottle arrives at your doorstep.")
+    # --- PAYMENT ---
+    {
+        "intent": "payment_methods",
+        "keywords": ["cod", "cash", "pay", "payment", "upi", "card", "credit", "debit", "wallet", "online"],
+        "response": [
+            "💳 We accept **Cash on Delivery (COD)**, UPI, Credit/Debit Cards, and Net Banking. You can choose your preferred method at checkout!",
+            "Yes! **COD is available**. You can pay cash when the delivery agent hands over your Medly bottle."
+        ]
+    },
 
-    # --- PRICE & COST ---
-    if any(word in msg for word in ["price", "cost", "how much", "rate", "rupees", "rs"]):
-        return ("Our prices range from **₹799** (Classic) to **₹2,000** (Sports). "
-                "Please check the 'Shop' page for the latest discounts and deals!")
-
-    # --- PRODUCT FEATURES (Hot/Cold) ---
-    if any(word in msg for word in ["hot", "cold", "hour", "temperature", "warm", "cool"]):
-        return ("Our ZeroAir™ vacuum technology keeps drinks **Hot for 20 Hours** and **Cold for 24 Hours**. "
-                "Perfect for any weather!")
+    # --- PRODUCT SPECS ---
+    {
+        "intent": "thermal_performance",
+        "keywords": ["hot", "cold", "warm", "cool", "hour", "hr", "temp", "temperature", "insulation", "vacuum"],
+        "response": [
+            "🔥❄️ **ZeroAir™ Technology**: Keeps water **Hot for 20 Hours** and **Cold for 24 Hours**. No matter the weather outside!",
+            "Our bottles are masterfully engineered to lock in temperature. Hot stays hot for 20hrs, Cold stays cold for 24hrs."
+        ]
+    },
+    {
+        "intent": "materials",
+        "keywords": ["material", "steel", "plastic", "metal", "grade", "bpa", "safe", "food", "304", "316"],
+        "response": [
+            "We use premium **18/8 (304 Grade) Stainless Steel**. It is 100% BPA-Free, Rust-Free, and Food Grade safe.",
+            "Built for endurance: High-grade Stainless Steel inside and out. No plastic touches your water."
+        ]
+    },
+    {
+        "intent": "leak_proof",
+        "keywords": ["leak", "spill", "tight", "seal", "bag", "proof"],
+        "response": [
+            "✅ Yes! All Medly bottles are **100% Leak-Proof**. You can toss them in your bag without worrying about spills."
+        ]
+    },
 
     # --- SPECIFIC MODELS ---
-    if "classic" in msg:
-        return "The **Classic** is our everyday favorite. Compact, stylish, and starts at ₹799."
-    if "prime" in msg:
-        return "The **Prime** is our premium model with a sleek finish, priced around ₹1,300."
-    if "sports" in msg or "gym" in msg:
-        return "The **Sports** bottle is built for endurance. Rugged, larger capacity, and ready for action."
-    if "tumbler" in msg:
-        return "The **Tumbler** is perfect for coffee or tea on the go."
+    {
+        "intent": "model_classic",
+        "keywords": ["classic", "basic", "standard", "799", "999"],
+        "response": ["The **Classic** is our fan-favorite. Minimalist design, fits in car cup holders, and starts at just **₹799**."]
+    },
+    {
+        "intent": "model_prime",
+        "keywords": ["prime", "premium", "sleek", "1300"],
+        "response": ["The **Prime** (₹1,300) features a sophisticated silhouette and premium finish. Perfect for the office or meetings."]
+    },
+    {
+        "intent": "model_sports",
+        "keywords": ["sports", "gym", "workout", "run", "running", "active", "2000", "1500"],
+        "response": ["The **Sports** edition (₹1,500 - ₹2,000) is built rugged for athletes. High capacity and grip-friendly."]
+    },
+    {
+        "intent": "model_tumbler",
+        "keywords": ["tumbler", "coffee", "mug", "cup", "tea", "1399"],
+        "response": ["The **Tumbler** (₹1,399) is your perfect coffee companion. Keeps your brew hot while you commute."]
+    },
 
-    # --- RETURNS & REFUNDS ---
-    if any(word in msg for word in ["return", "refund", "exchange", "broken", "damage", "defect"]):
-        return ("We have a **7-Day Easy Return Policy** for manufacturing defects or wrong products. "
-                "Just email us a photo/video, and we'll arrange a free reverse pickup.")
+    # --- PRICING ---
+    {
+        "intent": "price_query",
+        "keywords": ["price", "cost", "how much", "rate", "money", "expensive", "cheap", "discount", "offer", "coupon"],
+        "response": [
+            "Our bottles range from **₹799 to ₹2,000** depending on the model. Check the website header for today's special offers!",
+            "We offer premium quality at honest prices starting from **₹799**. "
+        ]
+    },
 
-    # --- CONTACT SUPPORT ---
-    if any(word in msg for word in ["contact", "support", "email", "phone", "call", "number", "talk", "human"]):
-        return ("We are here 24/7! Call us at **8744048726** or email **support@mymedly.in**.")
+    # --- RETURNS & CANCELLATION ---
+    {
+        "intent": "returns",
+        "keywords": ["return", "exchange", "refund", "back", "reverse", "policy", "change"],
+        "response": [
+            "🔄 **7-Day Easy Returns**: If you received a wrong or defective product, we will replace it for free. We arrange the reverse pickup for you.",
+            "We accept returns for manufacturing defects within 7 days. Just email us at support@mymedly.in."
+        ]
+    },
+    {
+        "intent": "cancel",
+        "keywords": ["cancel", "cancellation", "mistake", "wrong order"],
+        "response": [
+            "To cancel an order, please email **support@mymedly.in** or call us immediately. If it hasn't shipped yet, we will cancel it instantly."
+        ]
+    },
 
-    # --- CLEANING & CARE ---
-    if any(word in msg for word in ["clean", "wash", "smell", "care", "soap"]):
-        return "Hand wash your Medly bottle with warm soapy water. Do not put it in the dishwasher or freezer to maintain the vacuum seal."
+    # --- SUPPORT ---
+    {
+        "intent": "contact_info",
+        "keywords": [
+            "contact", "support", "call", "phone", "number", "mobile", "email", "mail", "talk", "speak", "human", "agent"
+        ],
+        "response": [
+            "📞 **24/7 Support**: Call us at **8744048726**.\n📧 Email: **support@mymedly.in**\n📍 Address: A-13, Graphix Tower-2, Sector-62, Noida.",
+            "We are always here! Call **8744048726** or drop an email to **support@mymedly.in**."
+        ]
+    },
 
-    # --- DEFAULT (Unknown Query) ---
-    return ("I'm not sure about that, but I'd love to help! "
-            "Please ask about Warranty, Shipping, or Prices, or email support@mymedly.in.")
+    # --- CARE INSTRUCTIONS ---
+    {
+        "intent": "care_instructions",
+        "keywords": ["wash", "clean", "soap", "smell", "odor", "dishwasher", "freezer", "fridge", "microwave"],
+        "response": [
+            "🧽 **Care Tips**: Hand wash with warm soapy water. \n🚫 **Don'ts**: Do not put in Dishwasher, Freezer, or Microwave (it damages the vacuum seal).",
+            "To remove odors, let the bottle sit with warm soapy water and vinegar for 10 minutes, then rinse."
+        ]
+    }
+]
 
-# --- ROUTES ---
+# ==============================================================================
+# 3. THE MATCHING ENGINE
+# ==============================================================================
+
+def find_best_intent(user_message):
+    """
+    Analyzes the user message to find the best matching intent from the Knowledge Base.
+    Uses Token Matching + Fuzzy Logic for typos.
+    """
+    
+    # 1. Clean the message: Lowercase and remove special characters
+    cleaned_msg = user_message.lower()
+    cleaned_msg = re.sub(r'[^\w\s]', '', cleaned_msg) # Remove punctuation
+    user_words = cleaned_msg.split()
+
+    best_score = 0
+    best_intent = None
+
+    # 2. Iterate through every intent in our massive database
+    for item in KNOWLEDGE_BASE:
+        score = 0
+        keywords = item['keywords']
+        
+        # Check for matches
+        for word in user_words:
+            # A. Exact Match
+            if word in keywords:
+                score += 10 # High score for exact match
+            
+            # B. Fuzzy Match (Handles typos like "waranty" or "shippng")
+            # We look for words in the keyword list that are remarkably similar to the user's word
+            else:
+                matches = difflib.get_close_matches(word, keywords, n=1, cutoff=0.85)
+                if matches:
+                    score += 8 # Good score for close typo match
+
+        # Update best intent if this one is stronger
+        if score > best_score:
+            best_score = score
+            best_intent = item
+
+    # 3. Determine Final Reply
+    if best_score > 0 and best_intent:
+        # Return a random variation of the answer to feel natural
+        if isinstance(best_intent['response'], list):
+            return random.choice(best_intent['response'])
+        return best_intent['response']
+
+    # 4. Fallback if no keywords matched
+    return None
+
+# ==============================================================================
+# 4. FLASK ROUTES
+# ==============================================================================
+
 @app.route('/', methods=['GET'])
 def home():
-    return "Medly Rule-Based Chatbot is Running."
+    return "Medly Mega-Bot is Running (Rule-Based v2.0)"
 
 @app.route('/chat', methods=['POST', 'OPTIONS'])
 def chat():
@@ -94,14 +294,20 @@ def chat():
         if not user_message:
             return jsonify({"error": "Empty message"}), 400
 
-        # Get the strict rule-based reply
-        bot_reply = get_rule_based_reply(user_message)
+        # --- RUN THE LOGIC ---
+        reply = find_best_intent(user_message)
 
-        return jsonify({"reply": bot_reply})
+        # --- FALLBACK RESPONSE ---
+        if not reply:
+            reply = ("I'm not sure about that, but I'd love to help! "
+                     "You can ask me about **Warranty**, **Shipping**, **Price**, or **Returns**. "
+                     "Or email us at support@mymedly.in.")
+
+        return jsonify({"reply": reply})
 
     except Exception as e:
         print(f"Error: {e}")
-        return jsonify({"error": "Server Error"}), 500
+        return jsonify({"error": "Internal Server Error"}), 500
 
 # Required for Vercel
 if __name__ == '__main__':
