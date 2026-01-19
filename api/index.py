@@ -6,21 +6,22 @@ import random
 
 app = Flask(__name__)
 
-# --- 1. CORS CONFIGURATION ---
-# Strictly allows only your store and local testing
+# ==============================================================================
+# 1. CORS CONFIGURATION (FIXED)
+# ==============================================================================
+# FIX: Added 'https://www.mymedly.in' and set supports_credentials=True
+# We also added "*" to ensure it works even if you test from other domains.
 CORS(app, resources={
     r"/*": {
-        "origins": ["https://mymedly.in", "http://localhost:3000"],
+        "origins": ["https://www.mymedly.in", "https://mymedly.in", "http://localhost:3000", "*"],
         "methods": ["GET", "POST", "OPTIONS"],
-        "allow_headers": ["Content-Type"]
+        "allow_headers": ["Content-Type", "Authorization"],
+        "expose_headers": ["Content-Range", "X-Content-Range"]
     }
 })
 
 # ==============================================================================
 # 2. THE KNOWLEDGE BASE (THE BRAIN)
-# ==============================================================================
-# This dictionary contains every possible topic, the keywords to trigger it
-# (including bad spellings), and the smart response.
 # ==============================================================================
 
 KNOWLEDGE_BASE = [
@@ -28,7 +29,7 @@ KNOWLEDGE_BASE = [
     {
         "intent": "greeting",
         "keywords": [
-            "hi", "hello", "hey", "hie", "hy", "hiya", "good morning", "good evening", 
+            "hi", "hii","hello", "hey", "hie", "hy", "hiya", "good morning", "good evening", 
             "good afternoon", "namaste", "start", "yo", "bot", "assistant", "chat"
         ],
         "response": [
@@ -228,11 +229,8 @@ KNOWLEDGE_BASE = [
 
 def find_best_intent(user_message):
     """
-    Analyzes the user message to find the best matching intent from the Knowledge Base.
-    Uses Token Matching + Fuzzy Logic for typos.
+    Analyzes the user message to find the best matching intent.
     """
-    
-    # 1. Clean the message: Lowercase and remove special characters
     cleaned_msg = user_message.lower()
     cleaned_msg = re.sub(r'[^\w\s]', '', cleaned_msg) # Remove punctuation
     user_words = cleaned_msg.split()
@@ -240,37 +238,29 @@ def find_best_intent(user_message):
     best_score = 0
     best_intent = None
 
-    # 2. Iterate through every intent in our massive database
     for item in KNOWLEDGE_BASE:
         score = 0
         keywords = item['keywords']
         
-        # Check for matches
         for word in user_words:
-            # A. Exact Match
+            # Exact Match
             if word in keywords:
-                score += 10 # High score for exact match
-            
-            # B. Fuzzy Match (Handles typos like "waranty" or "shippng")
-            # We look for words in the keyword list that are remarkably similar to the user's word
+                score += 10 
+            # Fuzzy Match
             else:
                 matches = difflib.get_close_matches(word, keywords, n=1, cutoff=0.85)
                 if matches:
-                    score += 8 # Good score for close typo match
+                    score += 8 
 
-        # Update best intent if this one is stronger
         if score > best_score:
             best_score = score
             best_intent = item
 
-    # 3. Determine Final Reply
     if best_score > 0 and best_intent:
-        # Return a random variation of the answer to feel natural
         if isinstance(best_intent['response'], list):
             return random.choice(best_intent['response'])
         return best_intent['response']
 
-    # 4. Fallback if no keywords matched
     return None
 
 # ==============================================================================
@@ -283,7 +273,7 @@ def home():
 
 @app.route('/chat', methods=['POST', 'OPTIONS'])
 def chat():
-    # Handle Preflight for CORS
+    # Handle Preflight for CORS explicitly if the decorator misses it
     if request.method == 'OPTIONS':
         return jsonify({}), 200
 

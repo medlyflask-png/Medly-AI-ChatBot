@@ -3,3 +3,5 @@ flask-cors
 python-dotenv
 requests
 google-generativeai
+Flask==3.0.0
+flask-cors==4.0.0
