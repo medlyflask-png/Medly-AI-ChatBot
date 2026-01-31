@@ -17,10 +17,10 @@
             ]
         }
     ],
-    "routes": [
+    "rewrites": [
         {
-            "src": "/(.*)",
-            "dest": "index.py"
+            "source": "/(.*)",
+            "destination": "/index.py"
         }
     ]
 }
