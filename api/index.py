@@ -3,21 +3,17 @@ from flask_cors import CORS
 import difflib
 import re
 
+# Vercel looks for this specific variable name 'app'
 app = Flask(__name__)
 
 # ==============================================================================
-# 1. CORS (Allows your website to talk to this bot)
+# 1. CORS CONFIGURATION (Double Safety)
 # ==============================================================================
-CORS(app, resources={
-    r"/*": {
-        "origins": ["https://www.mymedly.in", "https://mymedly.in", "http://localhost:3000", "*"],
-        "methods": ["GET", "POST", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"]
-    }
-})
+# Even though vercel.json handles it, we keep this for local testing safety.
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 # ==============================================================================
-# 2. PRODUCT DATA (The "Cards" the bot can show)
+# 2. PRODUCT DATA
 # ==============================================================================
 PRODUCTS = {
     "classic": {
@@ -51,18 +47,15 @@ PRODUCTS = {
 }
 
 # ==============================================================================
-# 3. KNOWLEDGE BASE (The Brain)
+# 3. KNOWLEDGE BASE
 # ==============================================================================
 KNOWLEDGE_BASE = [
-    # --- A. GREETING (Clean & Simple) ---
     {
         "intent": "greeting",
         "keywords": ["hi", "hii", "hello", "hey", "namaste", "start", "medly"],
         "response": "Hello! Welcome to Medly. How can I assist you today?", 
-        "card": None  # No product is shown here
+        "card": None 
     },
-
-    # --- B. PRODUCTS (Show Card ONLY if asked) ---
     {
         "intent": "product_classic",
         "keywords": ["classic", "standard", "750ml", "basic bottle", "799"],
@@ -81,19 +74,16 @@ KNOWLEDGE_BASE = [
         "response": "Here is the Medly Sports Rugged.",
         "card": PRODUCTS["sports"]
     },
-
-    # --- C. SPECIFIC QUESTIONS (Car, Warranty, Shipping) ---
     {
-        # This will ONLY trigger if user types "Car", "Cup holder", "Swift", etc.
         "intent": "car_cup_holder",
         "keywords": ["car", "cup holder", "swift", "creta", "driving", "fit"],
-        "response": "**Car Fit:** Yes! The Medly Classic and Prime fit perfectly in standard car cup holders. (The Sports model is wider).",
+        "response": "**Car Fit:** Yes! The Medly Classic and Prime fit perfectly in standard car cup holders.",
         "card": None
     },
     {
         "intent": "warranty",
         "keywords": ["warranty", "waranty", "guarantee", "lifetime", "replace", "broken", "claim"],
-        "response": "Medly offers a **Lifetime Warranty** on heat retention. If the vacuum fails, we replace it. Dents are not covered.",
+        "response": "Medly offers a **Lifetime Warranty** on heat retention. If the vacuum fails, we replace it.",
         "card": None
     },
     {
@@ -110,32 +100,23 @@ KNOWLEDGE_BASE = [
     }
 ]
 
-# Context Memory (Resets on restart)
-last_mentioned_product = None 
-
 # ==============================================================================
-# 4. LOGIC ENGINE (Fuzzy Logic + Fallback)
+# 4. LOGIC ENGINE
 # ==============================================================================
 def find_best_intent(user_message):
-    global last_mentioned_product
-    
-    # 1. Clean Input
     cleaned_msg = re.sub(r'[^\w\s]', '', user_message.lower())
     user_words = cleaned_msg.split()
     
     best_score = 0
     best_result = None
 
-    # 2. Check Knowledge Base
     for item in KNOWLEDGE_BASE:
         current_score = 0
         keywords = item['keywords']
-        
         for word in user_words:
             if word in keywords:
-                current_score += 10 # Exact match
+                current_score += 10
             else:
-                # Fuzzy Match (Handles typos like 'waranty')
                 matches = difflib.get_close_matches(word, keywords, n=1, cutoff=0.80)
                 if matches:
                     current_score += 8 
@@ -144,27 +125,24 @@ def find_best_intent(user_message):
             best_score = current_score
             best_result = item
 
-    # 3. STRICT THRESHOLD (The Gatekeeper)
-    # If score is less than 8, it means they didn't match any keyword properly.
     if best_score < 8:
-        return None  # This triggers the "Contact Us" fallback
+        return None
 
-    # 4. Success! Save context and return
-    if best_result:
-        if best_result.get('card'):
-            last_mentioned_product = best_result['card']
-            
-        return {
-            "text": best_result['response'],
-            "card": best_result.get('card'),      
-            "carousel": best_result.get('carousel') 
-        }
-
-    return None
+    return {
+        "text": best_result['response'],
+        "card": best_result.get('card'),      
+        "carousel": best_result.get('carousel') 
+    }
 
 # ==============================================================================
 # 5. SERVER ROUTES
 # ==============================================================================
+
+# Home Route - Essential for Vercel to know the app is alive
+@app.route('/', methods=['GET'])
+def home():
+    return "Medly Chatbot is Running!"
+
 @app.route('/chat', methods=['POST'])
 def chat():
     try:
@@ -174,14 +152,11 @@ def chat():
         if not user_message:
             return jsonify({"error": "Empty message"}), 400
 
-        # Run Logic
         intent_data = find_best_intent(user_message)
         
         if intent_data:
-            # Match Found -> Send Answer
             return jsonify(intent_data)
         else:
-            # NO Match -> Send "Contact Us" Fallback
             return jsonify({
                 "text": "I didn't quite catch that. Would you like to talk to our team directly?",
                 "card": {
@@ -197,5 +172,8 @@ def chat():
         print(f"Error: {e}")
         return jsonify({"error": "Server Error"}), 500
 
+# Vercel ENTRY POINT
+# The 'app' variable is automatically picked up by Vercel.
+# This block only runs if you type 'python index.py' locally.
 if __name__ == '__main__':
-    app.run(port=9292, debug=True)
+    app.run(port=9292, debug=False)
