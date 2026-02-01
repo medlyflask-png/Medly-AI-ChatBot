@@ -11,7 +11,7 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 # ==============================================================================
-# 2. FULL PRODUCT CATALOG (IMAGES REMOVED)
+# 2. FULL PRODUCT CATALOG
 # ==============================================================================
 PRODUCTS = {
     "classic": {
@@ -41,7 +41,7 @@ PRODUCTS = {
 }
 
 # ==============================================================================
-# 3. THE "INTELLIGENT" KNOWLEDGE BASE (EXPANDED)
+# 3. THE KNOWLEDGE BASE
 # ==============================================================================
 KNOWLEDGE_BASE = [
     # --- A. IDENTITY & PERSONALITY ---
@@ -196,7 +196,7 @@ KNOWLEDGE_BASE = [
 ]
 
 # ==============================================================================
-# 4. LOGIC ENGINE (Fuzzy + Threshold) - UNCHANGED
+# 4. LOGIC ENGINE (Fuzzy + Threshold)
 # ==============================================================================
 def find_best_intent(user_message):
     cleaned_msg = re.sub(r'[^\w\s]', '', user_message.lower())
@@ -231,7 +231,7 @@ def find_best_intent(user_message):
     }
 
 # ==============================================================================
-# 5. SERVER ROUTES (Production Ready)
+# 5. SERVER ROUTES
 # ==============================================================================
 
 # ROOT ROUTE (Health Check)
